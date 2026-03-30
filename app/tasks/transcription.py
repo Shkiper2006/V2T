@@ -9,6 +9,7 @@ from celery import chain
 
 from app.celery_app import celery_app
 from app.config import get_settings
+from app.services.speech_to_text import transcribe_with_fallback
 from app.services.telegram_notifier import TelegramNotifier
 from app.services.storage_service import StorageService
 
@@ -43,6 +44,7 @@ def process_voice(self, payload: dict) -> dict:
     tariff = payload.get("tariff", "basic")
     duration = int(payload.get("duration", 0))
     file_uri = payload["file_uri"]
+    language = payload.get("language")
 
     logger.info("Voice processing started", extra={"user_id": user_id, "file_uri": file_uri})
 
@@ -71,12 +73,18 @@ def process_voice(self, payload: dict) -> dict:
             logger.error("ffmpeg conversion failed: %s", result.stderr)
             raise TemporaryTaskError("ffmpeg conversion failed")
 
-        transcript = f"Транскрипция готова для файла {Path(file_uri).name}"
+        transcription_result = transcribe_with_fallback(str(wav_path), language=language)
+        transcript = transcription_result.transcript or ""
         logger.info("Voice transcription completed", extra={"user_id": user_id, "status": "success"})
 
         notifier.send_message(user_id, f"✅ Транскрипция:\n{transcript}")
         chain(create_note.s(user_id=user_id), notify_success.s(user_id=user_id)).delay()
-        return {"status": "completed", "transcript": transcript}
+        return {
+            "status": "completed",
+            "transcript": transcript,
+            "provider": transcription_result.provider,
+            "language": language or settings.stt_default_language,
+        }
     except TemporaryTaskError:
         notifier.send_message(user_id, "⚠️ Временная ошибка обработки, пробуем снова...")
         raise
