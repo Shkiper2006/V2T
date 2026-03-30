@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     tariff_basic_max_voice_seconds: int = Field(default=300, alias="TARIFF_BASIC_MAX_VOICE_SECONDS")
     tariff_pro_max_voice_seconds: int = Field(default=1800, alias="TARIFF_PRO_MAX_VOICE_SECONDS")
 
+    stt_provider: str = Field(default="vosk", alias="STT_PROVIDER")
+    stt_fallback_providers: str = Field(default="faster_whisper,google,yandex", alias="STT_FALLBACK_PROVIDERS")
+    stt_default_language: str = Field(default="ru-RU", alias="STT_DEFAULT_LANGUAGE")
+
+    stt_vosk_model_path: str = Field(default="", alias="STT_VOSK_MODEL_PATH")
+    stt_faster_whisper_model_size: str = Field(default="small", alias="STT_FASTER_WHISPER_MODEL_SIZE")
+    stt_faster_whisper_device: str = Field(default="cpu", alias="STT_FASTER_WHISPER_DEVICE")
+
+    stt_google_api_key: str = Field(default="", alias="STT_GOOGLE_API_KEY")
+    stt_yandex_api_key: str = Field(default="", alias="STT_YANDEX_API_KEY")
+    stt_yandex_folder_id: str = Field(default="", alias="STT_YANDEX_FOLDER_ID")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
