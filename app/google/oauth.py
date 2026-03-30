@@ -109,12 +109,17 @@ class GoogleOAuthService:
                 parsed = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             message = exc.read().decode("utf-8", errors="ignore")
-            raise GoogleOAuthError(f"Google token endpoint HTTP {exc.code}: {message}") from exc
+            raise GoogleOAuthError(
+                f"Google token endpoint HTTP {exc.code}: {self._sanitize_error_text(message)}"
+            ) from exc
         except URLError as exc:
             raise GoogleOAuthError(f"Google token endpoint unavailable: {exc.reason}") from exc
 
         if "access_token" not in parsed:
-            raise GoogleOAuthError(f"Google token response has no access_token: {parsed}")
+            raise GoogleOAuthError(
+                "Google token response has no access_token "
+                f"(keys: {', '.join(sorted(parsed.keys()))})"
+            )
 
         return {
             "access_token": parsed.get("access_token"),
@@ -124,3 +129,20 @@ class GoogleOAuthService:
             "token_type": parsed.get("token_type"),
             "id_token": parsed.get("id_token"),
         }
+
+    @staticmethod
+    def _sanitize_error_text(message: str) -> str:
+        try:
+            parsed = json.loads(message)
+        except json.JSONDecodeError:
+            return "redacted"
+
+        if isinstance(parsed, dict):
+            sensitive_keys = {"access_token", "refresh_token", "id_token", "token"}
+            sanitized = {
+                key: ("***redacted***" if key in sensitive_keys else value)
+                for key, value in parsed.items()
+            }
+            return json.dumps(sanitized, ensure_ascii=False, separators=(",", ":"))
+
+        return "redacted"

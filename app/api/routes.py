@@ -80,7 +80,7 @@ async def auth_google_callback(
             expires_at=expires_at,
         )
 
-    return {"status": "connected", "access_token": access_token}
+    return {"status": "connected"}
 
 
 @router.post("/users/{telegram_user_id}/google-mode")
