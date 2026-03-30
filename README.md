@@ -274,6 +274,9 @@ docker compose exec app alembic current
 
 После того как у вас есть HTTPS-домен:
 
+> `TELEGRAM_WEBHOOK_SECRET` обязателен.  
+> Telegram отправляет его в заголовке `X-Telegram-Bot-Api-Secret-Token`, а API отклоняет запрос (`403`), если токен не совпадает.
+
 ```bash
 curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \

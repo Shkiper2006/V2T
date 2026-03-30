@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from app.bot.dispatcher import bot, dp
+from app.config import get_settings
 from app.google.oauth import GoogleOAuthService
 from app.payments.webhooks import PaymentWebhookService
 from app.repositories.payment_repository import PaymentRepository
@@ -14,6 +15,7 @@ router = APIRouter()
 google_oauth_service = GoogleOAuthService()
 payment_webhook_service = PaymentWebhookService()
 subscription_repository = SubscriptionRepository()
+settings = get_settings()
 payment_service = PaymentService(
     payment_repository=PaymentRepository(),
     subscription_repository=subscription_repository,
@@ -21,9 +23,21 @@ payment_service = PaymentService(
 
 
 @router.post("/webhook/telegram")
-async def telegram_webhook(request: Request) -> dict[str, str]:
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(
+        default=None,
+        alias="X-Telegram-Bot-Api-Secret-Token",
+    ),
+) -> dict[str, str]:
     if bot is None:
         raise HTTPException(status_code=503, detail="Telegram bot token is not configured")
+
+    if not settings.telegram_webhook_secret:
+        raise HTTPException(status_code=503, detail="Telegram webhook secret is not configured")
+
+    if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+        raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret token")
 
     data = await request.json()
     await dp.feed_raw_update(bot=bot, update=data)
