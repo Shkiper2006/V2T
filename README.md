@@ -33,6 +33,86 @@ python --version
 
 ---
 
+## 0.1) Подробная установка и настройка Docker
+
+Ниже — последовательность для новичков. Выберите свою ОС.
+
+### Windows 10/11 (рекомендуется Docker Desktop + WSL2)
+
+1. Установите **Docker Desktop** с официального сайта.
+2. Во время установки включите опцию **Use WSL 2 instead of Hyper-V** (если доступно).
+3. Перезапустите компьютер.
+4. Откройте Docker Desktop → **Settings**:
+   - `General` → включить `Use the WSL 2 based engine`.
+   - `Resources > WSL Integration` → включить интеграцию для вашего дистрибутива (например, Ubuntu).
+5. Проверьте в PowerShell:
+
+```powershell
+docker --version
+docker compose version
+docker info
+```
+
+Если `docker info` не возвращает ошибку — движок работает.
+
+### macOS
+
+1. Установите Docker Desktop for Mac.
+2. Запустите Docker Desktop и дождитесь статуса **Engine running**.
+3. Проверка в терминале:
+
+```bash
+docker --version
+docker compose version
+docker info
+```
+
+### Linux (Ubuntu/Debian)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+Проверка:
+
+```bash
+docker --version
+docker compose version
+docker info
+```
+
+### Минимальные настройки Docker для этого проекта
+
+1. Убедитесь, что свободны порты:
+   - `8000` (API),
+   - `80` и `443` (Nginx, если запускаете вместе),
+   - `5432` (PostgreSQL, если пробрасываете наружу),
+   - `6379` (Redis, если пробрасываете наружу).
+2. Проверьте доступные ресурсы Docker Desktop:
+   - RAM минимум 4 GB (лучше 6–8 GB),
+   - CPU 2+ cores.
+3. На Windows добавьте папку проекта в доступные файловые шары Docker Desktop (если возникают проблемы с bind mounts).
+
+### Быстрый smoke-test Docker перед запуском проекта
+
+```bash
+docker run --rm hello-world
+```
+
+---
+
 ## 1) Скачивание проекта
 
 ```bash
@@ -102,6 +182,12 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+Проверить, что контейнеры действительно поднялись:
+
+```bash
+docker compose ps
+```
+
 ### Шаг 2. Проверить, что API поднялся
 
 ```bash
@@ -127,6 +213,12 @@ docker compose logs -f app
 docker compose logs -f worker
 docker compose logs -f postgres
 docker compose logs -f redis
+```
+
+Если какой-то контейнер в статусе `Exit`, получите детали:
+
+```bash
+docker compose logs <service_name>
 ```
 
 ---
@@ -265,13 +357,16 @@ docker compose build app
 - проверьте логи: `docker compose logs -f worker`.
 
 ### `Cannot connect to redis://redis:6379/0 ... getaddrinfo failed`
-- это обычно значит, что вы запускаете процесс **вне Docker**, а в `.env` стоит docker-host `redis`;
+- это обычно значит, что вы запускаете процесс **вне Docker**, а в `.env` стоит docker-host (`redis`, `cache` и т.п.);
 - для локального запуска укажите `REDIS_URL=redis://localhost:6379/0`;
+- если у вас задано, также обновите:
+  - `CELERY_BROKER_URL=redis://localhost:6379/0`
+  - `CELERY_RESULT_BACKEND=redis://localhost:6379/0`
 - либо запускайте worker внутри compose: `docker compose up -d worker redis`;
 - проверьте доступность Redis: `redis-cli -h localhost -p 6379 ping` (должно вернуть `PONG`).
 
 ### `socket.gaierror: [Errno 8] getaddrinfo failed` при подключении к PostgreSQL
-- это обычно значит, что в `DATABASE_URL` указан docker-host `postgres`, а вы запускаете бота локально;
+- это обычно значит, что в `DATABASE_URL` указан docker-host (`postgres`, `db` и т.п.), а вы запускаете бота локально;
 - для локального запуска используйте, например:  
   `DATABASE_URL=postgresql+asyncpg://v2t:change-me@localhost:5432/v2t`
 - убедитесь, что PostgreSQL реально запущен на `localhost:5432`;
