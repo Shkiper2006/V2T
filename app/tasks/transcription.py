@@ -70,6 +70,7 @@ def _tariff_limit_seconds(tariff: str) -> int:
 )
 def process_voice(self, payload: dict) -> dict:
     user_id = payload["telegram_user_id"]
+    request_id = payload.get("request_id")
     tariff = payload.get("tariff", "basic")
     duration = int(payload.get("duration", 0))
     file_uri = payload["file_uri"]
@@ -114,6 +115,7 @@ def process_voice(self, payload: dict) -> dict:
                     "provider": transcription_result.provider,
                     "duration": duration,
                     "user_id": user_id,
+                    "request_id": request_id,
                     "timestamp": request_timestamp or datetime.now(tz=UTC).isoformat(),
                     "stt_duration_seconds": transcription_result.duration_seconds,
                 }
@@ -161,6 +163,7 @@ def create_note(self, transcript_result: dict) -> dict:
     provider = transcript_result.get("provider", "unknown")
     duration_seconds = int(transcript_result.get("duration", 0))
     user_id = int(transcript_result["user_id"])
+    request_id = transcript_result.get("request_id")
     request_timestamp = _parse_request_timestamp(transcript_result.get("timestamp"))
     stt_duration_seconds = float(transcript_result.get("stt_duration_seconds", 0.0))
 
@@ -198,6 +201,10 @@ def create_note(self, transcript_result: dict) -> dict:
     async def _save_fact() -> None:
         user = await subscription_repository.get_user(user_id=user_id)
         await note_repository.create(user_id=user.id, text=transcript, duration_seconds=duration_seconds)
+        quota_consumed = await subscription_repository.consume_voice_quota_once(
+            user_id=user_id,
+            request_id=request_id or f"legacy-{user_id}-{request_timestamp.isoformat()}",
+        )
         await stt_attempt_log_repository.create(
             user_id=user.id,
             provider=provider,
@@ -208,6 +215,11 @@ def create_note(self, transcript_result: dict) -> dict:
             audio_duration_seconds=duration_seconds,
             request_timestamp=request_timestamp,
         )
+        if not quota_consumed:
+            logger.info(
+                "Quota already consumed for request, skipping duplicate charge",
+                extra={"user_id": user_id, "request_id": request_id},
+            )
 
     asyncio.run(_save_fact())
     logger.info("Google note created", extra={"user_id": user_id, "google_destination": google_destination})

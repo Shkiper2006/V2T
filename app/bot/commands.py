@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC
+from uuid import uuid4
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -227,9 +228,8 @@ async def voice_message_handler(message: Message) -> None:
         await message.answer(f"❌ {reason}")
         return
 
-    await service.reserve_voice_quota(user_id=message.from_user.id)
-
     payload = {
+        "request_id": str(uuid4()),
         "telegram_user_id": message.from_user.id,
         "file_uri": file_uri,
         "duration": message.voice.duration,
