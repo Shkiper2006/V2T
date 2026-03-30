@@ -105,13 +105,19 @@ docker compose up -d --build
 ### Шаг 2. Проверить, что API поднялся
 
 ```bash
-curl http://localhost/health
+curl http://localhost:8000/health
 ```
 
 Ожидаемый ответ:
 
 ```json
 {"status":"ok"}
+```
+
+Также можно проверить через Nginx (если контейнер `nginx` запущен):
+
+```bash
+curl http://localhost/health
 ```
 
 ### Шаг 3. Посмотреть логи
@@ -247,6 +253,12 @@ docker compose build app
 - проверьте, что webhook установлен;
 - проверьте HTTPS и доступность `/webhook/telegram`;
 - проверьте `TELEGRAM_BOT_TOKEN`.
+
+### `curl http://localhost/health` не открывается
+- проверьте, что контейнеры запущены: `docker compose ps`;
+- проверьте API напрямую (минуя Nginx): `curl http://localhost:8000/health`;
+- если `nginx` не поднялся, endpoint на `http://localhost/health` работать не будет;
+- пересоберите и поднимите сервисы заново: `docker compose up -d --build`.
 
 ### Воркеры не обрабатывают задачи
 - проверьте `redis` и `worker` в `docker compose ps`;
