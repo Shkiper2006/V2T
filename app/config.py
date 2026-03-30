@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     google_client_secret: str = Field(default="", alias="GOOGLE_CLIENT_SECRET")
     google_redirect_url: str = Field(default="http://localhost:8000/auth/google/callback", alias="GOOGLE_REDIRECT_URL")
 
+    google_notes_mode: str = Field(default="docs", alias="GOOGLE_NOTES_MODE")
+    google_docs_document_id: str = Field(default="", alias="GOOGLE_DOCS_DOCUMENT_ID")
+    google_sheets_spreadsheet_id: str = Field(default="", alias="GOOGLE_SHEETS_SPREADSHEET_ID")
+    google_sheets_tab_name: str = Field(default="Sheet1", alias="GOOGLE_SHEETS_TAB_NAME")
+
     database_url: str = Field(default="postgresql+asyncpg://v2t:change-me@localhost:5432/v2t", alias="DATABASE_URL")
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")

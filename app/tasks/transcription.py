@@ -10,6 +10,7 @@ from celery import chain
 
 from app.celery_app import celery_app
 from app.config import get_settings
+from app.google.note_sync_service import GoogleNoteSyncService, GoogleNoteSyncServiceError
 from app.services.speech_to_text import transcribe_with_fallback
 from app.repositories.note_repository import NoteRepository
 from app.repositories.subscription_repository import SubscriptionRepository
@@ -21,10 +22,14 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 storage = StorageService()
 notifier = TelegramNotifier()
+subscription_repository = SubscriptionRepository()
+note_repository = NoteRepository()
+
 note_service = NoteService(
-    note_repository=NoteRepository(),
-    subscription_repository=SubscriptionRepository(),
+    note_repository=note_repository,
+    subscription_repository=subscription_repository,
 )
+google_sync_service = GoogleNoteSyncService(subscription_repository=subscription_repository)
 
 
 class TemporaryTaskError(RuntimeError):
@@ -112,19 +117,43 @@ def process_voice(self, payload: dict) -> dict:
 def create_note(transcript_result: dict, user_id: int) -> dict:
     transcript = transcript_result.get("transcript", "")
     duration_seconds = int(transcript_result.get("duration", 0))
-    note = asyncio.run(
+    note_text = asyncio.run(
         note_service.create_summary_note(
             telegram_user_id=user_id,
             transcript=transcript,
             duration_seconds=duration_seconds,
         )
     )
-    logger.info("Note created", extra={"user_id": user_id})
-    return {"status": "note_created", "note": note}
+
+    google_status = "not_configured"
+    google_error: str | None = None
+    try:
+        sync_mode = google_sync_service.sync_note(telegram_user_id=user_id, text=note_text)
+        google_status = f"created_in_{sync_mode}"
+        fact_text = f"Google заметка успешно создана в режиме {sync_mode}: {note_text[:180]}"
+    except GoogleNoteSyncServiceError as exc:
+        google_status = "failed"
+        google_error = str(exc)
+        fact_text = f"Google заметка не создана: {exc}"
+
+    async def _save_fact() -> None:
+        user = await subscription_repository.get_user(user_id=user_id)
+        await note_repository.create(user_id=user.id, text=fact_text)
+
+    asyncio.run(_save_fact())
+
+    logger.info("Note created", extra={"user_id": user_id, "google_status": google_status})
+    return {
+        "status": "note_created",
+        "note": note_text,
+        "google_status": google_status,
+        "google_error": google_error,
+    }
 
 
 @celery_app.task(name="app.tasks.transcription.notify_success")
 def notify_success(note_result: dict, user_id: int) -> None:
     note = note_result.get("note", "")
-    notifier.send_message(user_id, f"📝 Заметка сформирована:\n{note}")
+    google_status = note_result.get("google_status", "unknown")
+    notifier.send_message(user_id, f"📝 Заметка сформирована:\n{note}\n\nGoogle sync: {google_status}")
     logger.info("User notified", extra={"user_id": user_id, "status": "notified"})
