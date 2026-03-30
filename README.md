@@ -237,6 +237,9 @@ docker compose exec app alembic upgrade head
 docker compose exec app alembic current
 ```
 
+> Начиная с текущей версии, приложение также пытается автоматически создать отсутствующие таблицы и заполнить базовые тарифы при старте API/бота/worker.  
+> Но для production всё равно рекомендуется использовать Alembic как основной способ управления схемой.
+
 ---
 
 ## 5) Настройка Telegram webhook
