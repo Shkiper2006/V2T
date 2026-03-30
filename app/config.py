@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     database_url: str = Field(default="postgresql+asyncpg://v2t:change-me@localhost:5432/v2t", alias="DATABASE_URL")
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    celery_broker_url: str = Field(default="", alias="CELERY_BROKER_URL")
+    celery_result_backend: str = Field(default="", alias="CELERY_RESULT_BACKEND")
 
     storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
     local_storage_path: str = Field(default="/tmp/v2t_storage", alias="LOCAL_STORAGE_PATH")
