@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
@@ -30,7 +31,9 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
 
 @router.get("/auth/google")
-async def auth_google(telegram_user_id: int | None = Query(default=None)) -> dict[str, str]:
+async def auth_google(
+    telegram_user_id: Annotated[int | None, Query()] = None,
+) -> dict[str, str]:
     return {"auth_url": google_oauth_service.build_auth_url(telegram_user_id=telegram_user_id)}
 
 
