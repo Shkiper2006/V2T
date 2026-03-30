@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,14 +16,32 @@ class SubscriptionRepository:
     async def activate_subscription(self, user_id: int) -> User:
         return await self.activate_tariff(user_id=user_id, tariff_code="pro")
 
-    async def activate_tariff(self, user_id: int, tariff_code: str) -> User:
+    async def activate_tariff(self, user_id: int, tariff_code: str, billing_cycle_days: int = 30) -> User:
         async with self._session_factory() as session:
             user = await self._get_or_create_user(session=session, user_id=user_id)
             user.tariff = tariff_code
-            user.is_subscribed = tariff_code != "free"
+
+            is_paid_tariff = tariff_code.lower() != "free"
+            user.is_subscribed = is_paid_tariff
+            if is_paid_tariff:
+                period_days = max(1, billing_cycle_days)
+                now = datetime.now(tz=timezone.utc)
+                current_expiry = user.subscription_expiry
+                if current_expiry and current_expiry.tzinfo is None:
+                    current_expiry = current_expiry.replace(tzinfo=timezone.utc)
+                base_datetime = current_expiry if current_expiry and current_expiry > now else now
+                user.subscription_expiry = base_datetime + timedelta(days=period_days)
+            else:
+                user.subscription_expiry = None
+
             await session.commit()
             await session.refresh(user)
             return user
+
+    async def has_active_subscription(self, user_id: int) -> tuple[bool, str | None]:
+        async with self._session_factory() as session:
+            user = await self._get_or_create_user(session=session, user_id=user_id)
+            return self._validate_subscription(user)
 
     async def get_user(self, user_id: int) -> User:
         async with self._session_factory() as session:
@@ -68,6 +86,11 @@ class SubscriptionRepository:
     async def can_consume_voice(self, user_id: int, duration_seconds: int) -> tuple[bool, str | None]:
         async with self._session_factory() as session:
             user = await self._get_or_create_user(session=session, user_id=user_id)
+
+            is_active, inactive_reason = self._validate_subscription(user)
+            if not is_active:
+                return False, inactive_reason
+
             tariff = await self._get_tariff_or_fallback(session=session, tariff_code=user.tariff)
             self._ensure_usage_month(user)
 
@@ -123,3 +146,17 @@ class SubscriptionRepository:
         if user.usage_month != current_month:
             user.usage_month = current_month
             user.monthly_messages_used = 0
+
+    @staticmethod
+    def _validate_subscription(user: User) -> tuple[bool, str | None]:
+        if user.tariff.lower() == "free":
+            return True, None
+
+        expiry = user.subscription_expiry
+        if expiry is None:
+            return False, "Подписка неактивна: не задан срок действия."
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry <= datetime.now(tz=timezone.utc):
+            return False, "Подписка истекла. Продлите тариф, чтобы продолжить."
+        return True, None

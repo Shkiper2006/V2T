@@ -71,6 +71,10 @@ async def auth_google_callback(
 
 @router.post("/users/{telegram_user_id}/google-mode")
 async def set_google_mode(telegram_user_id: int, mode: str = Query(pattern="^(docs|sheets)$")) -> dict[str, str]:
+    is_active, inactive_reason = await subscription_repository.has_active_subscription(user_id=telegram_user_id)
+    if not is_active:
+        raise HTTPException(status_code=403, detail=inactive_reason)
+
     user = await subscription_repository.set_google_notes_mode(user_id=telegram_user_id, mode=mode)
     effective_mode = user.google_notes_mode or "docs"
     return {"status": "ok", "mode": effective_mode}

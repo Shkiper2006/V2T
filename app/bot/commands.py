@@ -142,6 +142,11 @@ async def history_cmd(message: Message) -> None:
             requested_count = int(parts[1])
 
     user_id = message.from_user.id
+    is_active, inactive_reason = await service.ensure_active_subscription(user_id=user_id)
+    if not is_active:
+        await message.answer(f"❌ {inactive_reason}")
+        return
+
     tariff = await service.user_tariff(user_id=user_id)
     tariff_limit = HISTORY_LIMITS_BY_TARIFF.get(tariff.lower(), HISTORY_LIMITS_BY_TARIFF["free"])
     notes_limit = max(1, min(requested_count, tariff_limit))
@@ -201,6 +206,11 @@ async def subscribe_button_handler(message: Message) -> None:
 @router.message(lambda msg: bool(msg.voice))
 async def voice_message_handler(message: Message) -> None:
     if message.voice is None:
+        return
+
+    is_active, inactive_reason = await service.ensure_active_subscription(user_id=message.from_user.id)
+    if not is_active:
+        await message.answer(f"❌ {inactive_reason}")
         return
 
     file_info = await message.bot.get_file(message.voice.file_id)

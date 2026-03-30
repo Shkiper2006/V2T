@@ -73,6 +73,9 @@ class SubscriptionService:
     async def check_voice_allowed(self, user_id: int, duration_seconds: int) -> tuple[bool, str | None]:
         return await self.repository.can_consume_voice(user_id=user_id, duration_seconds=duration_seconds)
 
+    async def ensure_active_subscription(self, user_id: int) -> tuple[bool, str | None]:
+        return await self.repository.has_active_subscription(user_id=user_id)
+
     async def reserve_voice_quota(self, user_id: int) -> None:
         await self.repository.consume_voice_quota(user_id=user_id)
 

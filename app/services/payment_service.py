@@ -35,10 +35,23 @@ class PaymentService:
         )
 
         if payment.status == "paid":
+            billing_cycle_days = self._resolve_billing_cycle_days(event.payload)
             await self.subscription_repository.activate_tariff(
                 user_id=event.telegram_user_id,
                 tariff_code=event.tariff_code,
+                billing_cycle_days=billing_cycle_days,
             )
+
+    @staticmethod
+    def _resolve_billing_cycle_days(payload: dict) -> int:
+        data = payload.get("Data", {}) if isinstance(payload, dict) else {}
+        cycle = data.get("billing_cycle_days")
+        if cycle is None:
+            cycle = data.get("billing_cycle")
+        try:
+            return max(1, int(cycle))
+        except (TypeError, ValueError):
+            return 30
 
     async def create_payment_session(self, telegram_user_id: int, tariff_code: str) -> dict:
         tariff = await self.subscription_repository.get_tariff(tariff_code)
