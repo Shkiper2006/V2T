@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import socket
 from urllib.parse import urlparse, urlunparse
 
 from celery import Celery
+from celery.signals import worker_ready
 from kombu import Queue
 
 from app.config import get_settings
+from app.db.session import init_database
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -72,3 +75,8 @@ celery_app.conf.update(
 )
 
 celery_app.autodiscover_tasks(["app.tasks"])
+
+
+@worker_ready.connect
+def _worker_init_database(**_: object) -> None:
+    asyncio.run(init_database())
