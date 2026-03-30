@@ -270,6 +270,13 @@ docker compose build app
 - либо запускайте worker внутри compose: `docker compose up -d worker redis`;
 - проверьте доступность Redis: `redis-cli -h localhost -p 6379 ping` (должно вернуть `PONG`).
 
+### `socket.gaierror: [Errno 8] getaddrinfo failed` при подключении к PostgreSQL
+- это обычно значит, что в `DATABASE_URL` указан docker-host `postgres`, а вы запускаете бота локально;
+- для локального запуска используйте, например:  
+  `DATABASE_URL=postgresql+asyncpg://v2t:change-me@localhost:5432/v2t`
+- убедитесь, что PostgreSQL реально запущен на `localhost:5432`;
+- проверьте подключение: `psql -h localhost -p 5432 -U v2t -d v2t`.
+
 ### Ошибки STT
 - проверьте выбранный `STT_PROVIDER`;
 - проверьте ключи/API или путь к модели (`STT_VOSK_MODEL_PATH`).
