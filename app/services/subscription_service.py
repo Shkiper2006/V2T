@@ -17,7 +17,8 @@ class SubscriptionService:
         for tariff in tariffs:
             lines.append(
                 f"- {tariff.title}: {tariff.price_rub}₽/мес, "
-                f"{tariff.monthly_messages_quota} сообщений, до {tariff.max_audio_seconds}s аудио"
+                f"{tariff.monthly_messages_quota} сообщений, до {tariff.max_audio_seconds}s аудио, "
+                f"очередь: {tariff.queue_priority}"
             )
         return "\n".join(lines)
 
@@ -30,6 +31,7 @@ class SubscriptionService:
                 "price": tariff.price_rub,
                 "quota": tariff.monthly_messages_quota,
                 "max_audio": tariff.max_audio_seconds,
+                "queue_priority": tariff.queue_priority,
             }
             for tariff in tariffs
         ]
@@ -59,3 +61,20 @@ class SubscriptionService:
 
     async def reserve_voice_quota(self, user_id: int) -> None:
         await self.repository.consume_voice_quota(user_id=user_id)
+
+    async def user_tariff_details(self, user_id: int) -> dict[str, str | int]:
+        user = await self.repository.get_user(user_id)
+        tariff = await self.repository.get_tariff(user.tariff)
+        if tariff is None:
+            tariff = await self.repository.get_tariff("free")
+        if tariff is None:
+            raise RuntimeError("Tariff seed is missing in database")
+
+        return {
+            "code": tariff.code,
+            "title": tariff.title,
+            "quota": tariff.monthly_messages_quota,
+            "max_audio": tariff.max_audio_seconds,
+            "queue_priority": tariff.queue_priority,
+            "price": tariff.price_rub,
+        }

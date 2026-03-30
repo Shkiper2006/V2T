@@ -18,13 +18,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_subscription": "Подписка",
         "tariffs_title": "Выберите тариф:",
         "subscribe_title": "Выберите тариф для подписки:",
-        "tariff_line": "{title}: {price}₽/мес · {quota} сообщений · до {max_audio}s",
+        "tariff_line": "{title}: {price}₽/мес · {quota} сообщений · до {max_audio}s · очередь {queue_priority}",
         "payment_title": "Выберите способ оплаты:",
         "payment_link": "Оплатить {tariff}: {url}\nПровайдер: {provider}",
         "connect_google_message": "Подключите Google по персональной ссылке:\n{url}",
         "history_empty": "История заметок пока пуста.",
         "history_header": "🗂 Последние {count} заметок:",
-        "help": "Доступные команды:\n/start\n/subscribe\n/tariffs\n/connect_google\n/history\n/help",
+        "help": "Доступные команды:\n/start\n/subscribe\n/tariffs\n/limits\n/connect_google\n/history\n/help",
+        "limits_header": "📊 Ваш тариф: {title} ({code})",
+        "limits_line": "Лимиты: {quota} сообщений/мес, до {max_audio}s, приоритет очереди: {queue_priority}.",
+        "limits_price": "Цена: {price}₽/мес.",
         "unsupported_callback": "Неизвестное действие. Попробуйте снова.",
     }
 }

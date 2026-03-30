@@ -75,10 +75,29 @@ async def tariffs_cmd(message: Message) -> None:
                 price=int(tariff["price"]),
                 quota=int(tariff["quota"]),
                 max_audio=int(tariff["max_audio"]),
+                queue_priority=str(tariff["queue_priority"]),
             )
         )
 
     await message.answer("\n".join(lines), reply_markup=tariff_select_keyboard())
+
+
+@router.message(Command("limits"))
+async def limits_cmd(message: Message) -> None:
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
+    tariff = await service.user_tariff_details(user_id=message.from_user.id)
+    lines = [
+        t("limits_header", locale, title=str(tariff["title"]), code=str(tariff["code"]).upper()),
+        t(
+            "limits_line",
+            locale,
+            quota=int(tariff["quota"]),
+            max_audio=int(tariff["max_audio"]),
+            queue_priority=str(tariff["queue_priority"]),
+        ),
+        t("limits_price", locale, price=int(tariff["price"])),
+    ]
+    await message.answer("\n".join(lines))
 
 
 @router.callback_query(F.data.startswith("plan:"))
@@ -189,7 +208,7 @@ async def voice_message_handler(message: Message) -> None:
     voice_bytes = file_data.read()
 
     file_uri = storage.save_bytes(data=voice_bytes, suffix=".ogg")
-    tariff = await service.user_tariff(user_id=message.from_user.id)
+    tariff = await service.user_tariff_details(user_id=message.from_user.id)
     allowed, reason = await service.check_voice_allowed(
         user_id=message.from_user.id,
         duration_seconds=message.voice.duration,
@@ -204,9 +223,16 @@ async def voice_message_handler(message: Message) -> None:
         "telegram_user_id": message.from_user.id,
         "file_uri": file_uri,
         "duration": message.voice.duration,
-        "tariff": tariff,
+        "tariff": tariff["code"],
     }
 
-    process_voice.delay(payload)
+    queue_priority = str(tariff["queue_priority"])
+    if queue_priority not in {"low", "normal", "high", "business"}:
+        queue_priority = "normal"
+    queue_name = f"transcription_{queue_priority}"
+    process_voice.apply_async(args=(payload,), queue=queue_name)
     logger.info("Voice task queued", extra={"user_id": message.from_user.id, "file_uri": file_uri})
-    await message.answer("🎧 Голосовое сообщение получено. Начинаю обработку...")
+    await message.answer(
+        "🎧 Голосовое сообщение получено. Начинаю обработку...\n"
+        f"Приоритет очереди: {queue_priority}."
+    )
