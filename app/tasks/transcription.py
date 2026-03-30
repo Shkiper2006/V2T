@@ -37,11 +37,13 @@ class TemporaryTaskError(RuntimeError):
 
 
 def _tariff_limit_seconds(tariff: str) -> int:
-    return (
-        settings.tariff_pro_max_voice_seconds
-        if tariff.lower() == "pro"
-        else settings.tariff_basic_max_voice_seconds
-    )
+    async def _get_limit() -> int:
+        tariff_obj = await subscription_repository.get_tariff(tariff.lower())
+        if tariff_obj is None:
+            return settings.tariff_basic_max_voice_seconds
+        return tariff_obj.max_audio_seconds
+
+    return asyncio.run(_get_limit())
 
 
 @celery_app.task(

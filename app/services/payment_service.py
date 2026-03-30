@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.config import get_settings
+from app.payments.providers import get_provider_adapter
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.subscription_repository import SubscriptionRepository
 
@@ -10,22 +12,43 @@ class PaymentService:
     def __init__(self, payment_repository: PaymentRepository, subscription_repository: SubscriptionRepository) -> None:
         self.payment_repository = payment_repository
         self.subscription_repository = subscription_repository
+        self.settings = get_settings()
 
-    async def handle_webhook(self, payload: dict) -> None:
-        telegram_user_id = int(payload.get("telegram_user_id", 0))
-        if telegram_user_id <= 0:
+    async def handle_webhook(self, provider: str, payload: dict, signature: str) -> None:
+        adapter = get_provider_adapter(provider)
+        if not adapter.verify_signature(payload=payload, signature=signature):
+            raise ValueError("Invalid payment signature")
+
+        event = adapter.parse_webhook(payload)
+        if event.telegram_user_id <= 0:
             return
 
-        user = await self.subscription_repository.get_user(user_id=telegram_user_id)
+        user = await self.subscription_repository.get_user(user_id=event.telegram_user_id)
         payment = await self.payment_repository.create_or_update(
             user_id=user.id,
-            provider=str(payload.get("provider", "unknown")),
-            external_payment_id=str(payload.get("payment_id", "")),
-            status=str(payload.get("status", "pending")),
-            amount=Decimal(str(payload.get("amount", 0))),
-            currency=str(payload.get("currency", "RUB")),
-            payload=payload,
+            provider=event.provider,
+            external_payment_id=event.payment_id,
+            status=event.status,
+            amount=event.amount,
+            currency=event.currency,
+            payload=event.payload,
         )
 
         if payment.status == "paid":
-            await self.subscription_repository.activate_subscription(user_id=telegram_user_id)
+            await self.subscription_repository.activate_tariff(
+                user_id=event.telegram_user_id,
+                tariff_code=event.tariff_code,
+            )
+
+    async def create_payment_session(self, telegram_user_id: int, tariff_code: str) -> dict:
+        tariff = await self.subscription_repository.get_tariff(tariff_code)
+        if tariff is None:
+            raise ValueError(f"Tariff '{tariff_code}' not found")
+
+        adapter = get_provider_adapter(self.settings.payments_provider)
+        return adapter.create_payment_session(
+            telegram_user_id=telegram_user_id,
+            tariff_code=tariff_code,
+            amount=Decimal(str(tariff.price_rub)),
+            currency="RUB",
+        )
