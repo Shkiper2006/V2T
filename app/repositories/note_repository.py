@@ -19,7 +19,22 @@ class NoteRepository:
             await session.refresh(note)
             return note
 
-    async def list_by_user(self, user_id: int, limit: int = 50) -> list[Note]:
+    async def list_by_user(
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 20,
+        sort: str = "desc",
+    ) -> list[Note]:
+        safe_page = max(page, 1)
+        safe_page_size = max(1, min(page_size, 100))
+        offset = (safe_page - 1) * safe_page_size
+
         async with self._session_factory() as session:
-            stmt = select(Note).where(Note.user_id == user_id).order_by(Note.created_at.desc()).limit(limit)
+            stmt = select(Note).where(Note.user_id == user_id)
+            if sort.lower() == "asc":
+                stmt = stmt.order_by(Note.created_at.asc())
+            else:
+                stmt = stmt.order_by(Note.created_at.desc())
+            stmt = stmt.offset(offset).limit(safe_page_size)
             return list(await session.scalars(stmt))

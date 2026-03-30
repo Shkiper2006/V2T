@@ -1,9 +1,11 @@
 import logging
+from datetime import timezone
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from app.repositories.note_repository import NoteRepository
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.services.payment_service import PaymentService
@@ -19,6 +21,14 @@ payment_service = PaymentService(
     subscription_repository=SubscriptionRepository(),
 )
 storage = StorageService()
+note_repository = NoteRepository()
+
+HISTORY_LIMITS_BY_TARIFF: dict[str, int] = {
+    "free": 5,
+    "basic": 5,
+    "pro": 20,
+    "business": 100,
+}
 
 
 @router.message(Command("start"))
@@ -51,7 +61,41 @@ async def connect_google_cmd(message: Message) -> None:
 
 @router.message(Command("history"))
 async def history_cmd(message: Message) -> None:
-    await message.answer("История операций пока пуста.")
+    requested_count = 5
+    if message.text:
+        parts = message.text.split(maxsplit=1)
+        if len(parts) > 1 and parts[1].isdigit():
+            requested_count = int(parts[1])
+
+    user_id = message.from_user.id
+    tariff = await service.user_tariff(user_id=user_id)
+    tariff_limit = HISTORY_LIMITS_BY_TARIFF.get(tariff.lower(), HISTORY_LIMITS_BY_TARIFF["free"])
+    notes_limit = max(1, min(requested_count, tariff_limit))
+    notes = await note_repository.list_by_user(
+        user_id=user_id,
+        page=1,
+        page_size=notes_limit,
+        sort="desc",
+    )
+
+    if not notes:
+        await message.answer("История заметок пока пуста.")
+        return
+
+    if requested_count > tariff_limit:
+        await message.answer(
+            f"ℹ️ По тарифу {tariff} доступно до {tariff_limit} заметок за запрос. Показываю {notes_limit}."
+        )
+
+    lines = [f"🗂 Последние {len(notes)} заметок:"]
+    for idx, note in enumerate(notes, start=1):
+        created_at = note.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        stamp = created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        lines.append(f"{idx}. [{stamp}] {note.text}")
+
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("help"))

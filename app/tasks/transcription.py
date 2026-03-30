@@ -129,18 +129,19 @@ def create_note(transcript_result: dict, user_id: int) -> dict:
 
     google_status = "not_configured"
     google_error: str | None = None
+    stored_note_text = note_text
     try:
         sync_mode = google_sync_service.sync_note(telegram_user_id=user_id, text=note_text)
         google_status = f"created_in_{sync_mode}"
-        fact_text = f"Google заметка успешно создана в режиме {sync_mode}: {note_text[:180]}"
+        stored_note_text = f"{note_text}\n\nGoogle sync: {google_status}"
     except GoogleNoteSyncServiceError as exc:
         google_status = "failed"
         google_error = str(exc)
-        fact_text = f"Google заметка не создана: {exc}"
+        stored_note_text = f"{note_text}\n\nGoogle sync error: {exc}"
 
     async def _save_fact() -> None:
         user = await subscription_repository.get_user(user_id=user_id)
-        await note_repository.create(user_id=user.id, text=fact_text)
+        await note_repository.create(user_id=user.id, text=stored_note_text, duration_seconds=duration_seconds)
 
     asyncio.run(_save_fact())
 
