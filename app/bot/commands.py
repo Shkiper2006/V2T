@@ -1,10 +1,13 @@
 import logging
 from datetime import timezone
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
+from app.bot.i18n import get_locale, t
+from app.bot.keyboards import main_menu_keyboard, payment_select_keyboard, tariff_select_keyboard
+from app.google.oauth import GoogleOAuthService
 from app.repositories.note_repository import NoteRepository
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.subscription_repository import SubscriptionRepository
@@ -20,6 +23,7 @@ payment_service = PaymentService(
     payment_repository=PaymentRepository(),
     subscription_repository=SubscriptionRepository(),
 )
+google_oauth_service = GoogleOAuthService()
 storage = StorageService()
 note_repository = NoteRepository()
 
@@ -33,35 +37,86 @@ HISTORY_LIMITS_BY_TARIFF: dict[str, int] = {
 
 @router.message(Command("start"))
 async def start_cmd(message: Message) -> None:
-    await message.answer("Добро пожаловать! Используйте /help для списка команд.")
+    user_id = message.from_user.id
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
+
+    google_connected = await service.is_google_connected(user_id=user_id)
+    tariff = await service.user_tariff(user_id=user_id)
+    quota = await service.quota_status(user_id=user_id)
+
+    steps = [
+        t("welcome", locale),
+        "1) " + (t("start_step_google_connected", locale) if google_connected else t("start_step_google_missing", locale)),
+        t("start_step_tariff", locale, tariff=tariff.upper()),
+        t("start_step_quota", locale, remaining=quota["remaining"], quota=quota["quota"]),
+        t("start_step_end", locale),
+    ]
+    await message.answer("\n".join(steps), reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("subscribe"))
 async def subscribe_cmd(message: Message) -> None:
-    session = await payment_service.create_payment_session(
-        telegram_user_id=message.from_user.id,
-        tariff_code="pro",
-    )
-    await message.answer(
-        "Оформить подписку Pro:\n"
-        f"{session['payment_url']}\n"
-        f"Провайдер: {session['provider']}"
-    )
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
+    await message.answer(t("subscribe_title", locale), reply_markup=tariff_select_keyboard())
 
 
 @router.message(Command("tariffs"))
 async def tariffs_cmd(message: Message) -> None:
-    await message.answer(await service.tariffs())
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
+    tariffs = await service.tariffs_catalog()
+
+    lines = [t("tariffs_title", locale)]
+    for tariff in tariffs:
+        lines.append(
+            t(
+                "tariff_line",
+                locale,
+                title=str(tariff["title"]),
+                price=int(tariff["price"]),
+                quota=int(tariff["quota"]),
+                max_audio=int(tariff["max_audio"]),
+            )
+        )
+
+    await message.answer("\n".join(lines), reply_markup=tariff_select_keyboard())
+
+
+@router.callback_query(F.data.startswith("plan:"))
+async def select_plan_callback(callback: CallbackQuery) -> None:
+    locale = get_locale(callback.from_user.language_code if callback.from_user else None)
+    tariff_code = callback.data.split(":", maxsplit=1)[1]
+    await callback.message.answer(
+        t("payment_title", locale),
+        reply_markup=payment_select_keyboard(tariff_code=tariff_code),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pay:"))
+async def pay_callback(callback: CallbackQuery) -> None:
+    locale = get_locale(callback.from_user.language_code if callback.from_user else None)
+    tariff_code = callback.data.split(":", maxsplit=1)[1]
+    session = await payment_service.create_payment_session(
+        telegram_user_id=callback.from_user.id,
+        tariff_code=tariff_code,
+    )
+    await callback.message.answer(
+        t("payment_link", locale, tariff=tariff_code.upper(), url=session["payment_url"], provider=session["provider"])
+    )
+    await callback.answer()
 
 
 @router.message(Command("connect_google"))
 async def connect_google_cmd(message: Message) -> None:
-    await message.answer("Подключение Google: откройте /auth/google")
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
+    auth_url = google_oauth_service.build_auth_url(telegram_user_id=message.from_user.id)
+    await message.answer(t("connect_google_message", locale, url=auth_url))
 
 
 @router.message(Command("history"))
 async def history_cmd(message: Message) -> None:
     requested_count = 5
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
     if message.text:
         parts = message.text.split(maxsplit=1)
         if len(parts) > 1 and parts[1].isdigit():
@@ -79,7 +134,7 @@ async def history_cmd(message: Message) -> None:
     )
 
     if not notes:
-        await message.answer("История заметок пока пуста.")
+        await message.answer(t("history_empty", locale))
         return
 
     if requested_count > tariff_limit:
@@ -87,7 +142,7 @@ async def history_cmd(message: Message) -> None:
             f"ℹ️ По тарифу {tariff} доступно до {tariff_limit} заметок за запрос. Показываю {notes_limit}."
         )
 
-    lines = [f"🗂 Последние {len(notes)} заметок:"]
+    lines = [t("history_header", locale, count=len(notes))]
     for idx, note in enumerate(notes, start=1):
         created_at = note.created_at
         if created_at.tzinfo is None:
@@ -100,15 +155,28 @@ async def history_cmd(message: Message) -> None:
 
 @router.message(Command("help"))
 async def help_cmd(message: Message) -> None:
-    await message.answer(
-        "Доступные команды:\n"
-        "/start\n"
-        "/subscribe\n"
-        "/tariffs\n"
-        "/connect_google\n"
-        "/history\n"
-        "/help"
-    )
+    locale = get_locale(message.from_user.language_code if message.from_user else None)
+    await message.answer(t("help", locale))
+
+
+@router.message(F.text == "Тарифы")
+async def tariffs_button_handler(message: Message) -> None:
+    await tariffs_cmd(message)
+
+
+@router.message(F.text == "Подключить Google")
+async def google_button_handler(message: Message) -> None:
+    await connect_google_cmd(message)
+
+
+@router.message(F.text == "История")
+async def history_button_handler(message: Message) -> None:
+    await history_cmd(message)
+
+
+@router.message(F.text == "Подписка")
+async def subscribe_button_handler(message: Message) -> None:
+    await subscribe_cmd(message)
 
 
 @router.message(lambda msg: bool(msg.voice))
