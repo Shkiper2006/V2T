@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -11,10 +12,10 @@ from celery import chain
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.google.note_sync_service import GoogleNoteSyncService, GoogleNoteSyncServiceError
-from app.services.speech_to_text import transcribe_with_fallback
+from app.repositories.stt_attempt_log_repository import STTAttemptLogRepository
+from app.services.speech_to_text import SpeechProviderError, transcribe_with_fallback
 from app.repositories.note_repository import NoteRepository
 from app.repositories.subscription_repository import SubscriptionRepository
-from app.services.note_service import NoteService
 from app.services.telegram_notifier import TelegramNotifier
 from app.services.storage_service import StorageService
 
@@ -24,16 +25,29 @@ storage = StorageService()
 notifier = TelegramNotifier()
 subscription_repository = SubscriptionRepository()
 note_repository = NoteRepository()
-
-note_service = NoteService(
-    note_repository=note_repository,
-    subscription_repository=subscription_repository,
-)
+stt_attempt_log_repository = STTAttemptLogRepository()
 google_sync_service = GoogleNoteSyncService(subscription_repository=subscription_repository)
 
 
 class TemporaryTaskError(RuntimeError):
     """Represents retryable temporary task errors."""
+
+
+def _parse_request_timestamp(raw: str | None) -> datetime:
+    if not raw:
+        return datetime.now(tz=timezone.utc)
+
+    normalized = raw.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_google_sync_retryable(exc: GoogleNoteSyncServiceError) -> bool:
+    message = str(exc).lower()
+    retryable_markers = ("api unavailable", "http 429", "http 500", "http 502", "http 503", "http 504")
+    return any(marker in message for marker in retryable_markers)
 
 
 def _tariff_limit_seconds(tariff: str) -> int:
@@ -60,6 +74,7 @@ def process_voice(self, payload: dict) -> dict:
     duration = int(payload.get("duration", 0))
     file_uri = payload["file_uri"]
     language = payload.get("language")
+    request_timestamp = payload.get("timestamp")
 
     logger.info("Voice processing started", extra={"user_id": user_id, "file_uri": file_uri})
 
@@ -92,8 +107,19 @@ def process_voice(self, payload: dict) -> dict:
         transcript = transcription_result.transcript or ""
         logger.info("Voice transcription completed", extra={"user_id": user_id, "status": "success"})
 
-        notifier.send_message(user_id, f"✅ Транскрипция:\n{transcript}")
-        chain(create_note.s(user_id=user_id), notify_success.s(user_id=user_id)).delay()
+        chain(
+            create_note.s(
+                {
+                    "transcript": transcript,
+                    "provider": transcription_result.provider,
+                    "duration": duration,
+                    "user_id": user_id,
+                    "timestamp": request_timestamp or datetime.now(tz=timezone.utc).isoformat(),
+                    "stt_duration_seconds": transcription_result.duration_seconds,
+                }
+            ),
+            notify_success.s(user_id=user_id),
+        ).delay()
         return {
             "status": "completed",
             "transcript": transcript,
@@ -101,6 +127,13 @@ def process_voice(self, payload: dict) -> dict:
             "language": language or settings.stt_default_language,
             "duration": duration,
         }
+    except SpeechProviderError as exc:
+        logger.exception("STT failed", extra={"user_id": user_id, "error_code": exc.code, "retryable": exc.retryable})
+        if exc.retryable:
+            notifier.send_message(user_id, "⚠️ Временная ошибка распознавания речи, пробуем снова...")
+            raise TemporaryTaskError(str(exc)) from exc
+        notifier.send_message(user_id, f"❌ Ошибка распознавания речи ({exc.code}). Попробуйте позже.")
+        raise
     except TemporaryTaskError:
         notifier.send_message(user_id, "⚠️ Временная ошибка обработки, пробуем снова...")
         raise
@@ -115,48 +148,95 @@ def process_voice(self, payload: dict) -> dict:
             wav_path.unlink(missing_ok=True)
 
 
-@celery_app.task(name="app.tasks.transcription.create_note")
-def create_note(transcript_result: dict, user_id: int) -> dict:
+@celery_app.task(
+    bind=True,
+    name="app.tasks.transcription.create_note",
+    autoretry_for=(TemporaryTaskError,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+)
+def create_note(self, transcript_result: dict) -> dict:
     transcript = transcript_result.get("transcript", "")
+    provider = transcript_result.get("provider", "unknown")
     duration_seconds = int(transcript_result.get("duration", 0))
-    note_text = asyncio.run(
-        note_service.create_summary_note(
-            telegram_user_id=user_id,
-            transcript=transcript,
-            duration_seconds=duration_seconds,
-        )
-    )
+    user_id = int(transcript_result["user_id"])
+    request_timestamp = _parse_request_timestamp(transcript_result.get("timestamp"))
+    stt_duration_seconds = float(transcript_result.get("stt_duration_seconds", 0.0))
 
-    google_status = "not_configured"
-    google_error: str | None = None
-    stored_note_text = note_text
     try:
-        sync_mode = google_sync_service.sync_note(telegram_user_id=user_id, text=note_text)
-        google_status = f"created_in_{sync_mode}"
-        stored_note_text = f"{note_text}\n\nGoogle sync: {google_status}"
+        google_destination = google_sync_service.sync_note(telegram_user_id=user_id, text=transcript)
     except GoogleNoteSyncServiceError as exc:
-        google_status = "failed"
-        google_error = str(exc)
-        stored_note_text = f"{note_text}\n\nGoogle sync error: {exc}"
+        retryable = _is_google_sync_retryable(exc)
+        logger.exception(
+            "Google sync failed",
+            extra={"user_id": user_id, "provider": provider, "retryable": retryable},
+        )
+        if retryable:
+            notifier.send_message(user_id, "⚠️ Временная ошибка записи в Google, пробуем снова...")
+            raise TemporaryTaskError(str(exc)) from exc
+
+        asyncio.run(
+            stt_attempt_log_repository.create(
+                user_id=user_id,
+                provider=provider,
+                success=False,
+                retryable=False,
+                error_code="GOOGLE_SYNC_FAILED",
+                stt_duration_seconds=stt_duration_seconds,
+                audio_duration_seconds=duration_seconds,
+                request_timestamp=request_timestamp,
+            )
+        )
+        return {
+            "status": "failed",
+            "transcript": transcript,
+            "duration": duration_seconds,
+            "google_destination": "failed",
+        }
 
     async def _save_fact() -> None:
         user = await subscription_repository.get_user(user_id=user_id)
-        await note_repository.create(user_id=user.id, text=stored_note_text, duration_seconds=duration_seconds)
+        await note_repository.create(user_id=user.id, text=transcript, duration_seconds=duration_seconds)
+        await stt_attempt_log_repository.create(
+            user_id=user.id,
+            provider=provider,
+            success=True,
+            retryable=False,
+            error_code=None,
+            stt_duration_seconds=stt_duration_seconds,
+            audio_duration_seconds=duration_seconds,
+            request_timestamp=request_timestamp,
+        )
 
     asyncio.run(_save_fact())
-
-    logger.info("Note created", extra={"user_id": user_id, "google_status": google_status})
+    logger.info("Google note created", extra={"user_id": user_id, "google_destination": google_destination})
     return {
         "status": "note_created",
-        "note": note_text,
-        "google_status": google_status,
-        "google_error": google_error,
+        "transcript": transcript,
+        "duration": duration_seconds,
+        "google_destination": google_destination,
     }
 
 
 @celery_app.task(name="app.tasks.transcription.notify_success")
 def notify_success(note_result: dict, user_id: int) -> None:
-    note = note_result.get("note", "")
-    google_status = note_result.get("google_status", "unknown")
-    notifier.send_message(user_id, f"📝 Заметка сформирована:\n{note}\n\nGoogle sync: {google_status}")
+    status = note_result.get("status", "unknown")
+    if status != "note_created":
+        notifier.send_message(user_id, "❌ Не удалось записать заметку в Google Docs/Sheets.")
+        logger.warning("User notified about failed note sync", extra={"user_id": user_id, "status": status})
+        return
+
+    transcript = note_result.get("transcript", "")
+    duration = int(note_result.get("duration", 0))
+    google_destination = note_result.get("google_destination", "unknown")
+    notifier.send_message(
+        user_id,
+        (
+            "📝 Готово! Запись сохранена.\n"
+            f"Текст: {transcript}\n"
+            f"Время: {duration} сек.\n"
+            f"Google: {google_destination}"
+        ),
+    )
     logger.info("User notified", extra={"user_id": user_id, "status": "notified"})
