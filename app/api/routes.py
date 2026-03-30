@@ -30,12 +30,16 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
 
 @router.get("/auth/google")
-async def auth_google() -> dict[str, str]:
-    return {"auth_url": google_oauth_service.build_auth_url()}
+async def auth_google(telegram_user_id: int | None = Query(default=None)) -> dict[str, str]:
+    return {"auth_url": google_oauth_service.build_auth_url(telegram_user_id=telegram_user_id)}
 
 
 @router.get("/auth/google/callback")
-async def auth_google_callback(code: str, telegram_user_id: int | None = Query(default=None)) -> dict[str, str]:
+async def auth_google_callback(
+    code: str,
+    state: str | None = Query(default=None),
+    telegram_user_id: int | None = Query(default=None),
+) -> dict[str, str]:
     token_payload = await google_oauth_service.exchange_code_for_token(code=code)
 
     access_token = str(token_payload["access_token"])
@@ -47,9 +51,13 @@ async def auth_google_callback(code: str, telegram_user_id: int | None = Query(d
         else None
     )
 
-    if telegram_user_id is not None:
+    resolved_user_id = telegram_user_id
+    if state is not None:
+        resolved_user_id = google_oauth_service.parse_state(state)
+
+    if resolved_user_id is not None:
         await subscription_repository.save_google_tokens(
-            user_id=telegram_user_id,
+            user_id=resolved_user_id,
             access_token=access_token,
             refresh_token=str(refresh_token) if refresh_token else None,
             expires_at=expires_at,

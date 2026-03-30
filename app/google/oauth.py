@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
@@ -21,18 +24,53 @@ class GoogleOAuthService:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def build_auth_url(self) -> str:
-        query = urlencode(
-            {
-                "client_id": self.settings.google_client_id,
-                "redirect_uri": self.settings.google_redirect_url,
-                "response_type": "code",
-                "scope": "openid email profile https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/spreadsheets",
-                "access_type": "offline",
-                "prompt": "consent",
-            }
-        )
+    def build_auth_url(self, telegram_user_id: int | None = None) -> str:
+        state = self.build_state(telegram_user_id) if telegram_user_id is not None else None
+        payload = {
+            "client_id": self.settings.google_client_id,
+            "redirect_uri": self.settings.google_redirect_url,
+            "response_type": "code",
+            "scope": "openid email profile https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/spreadsheets",
+            "access_type": "offline",
+            "prompt": "consent",
+        }
+        if state:
+            payload["state"] = state
+
+        query = urlencode(payload)
         return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
+
+    def build_state(self, telegram_user_id: int) -> str:
+        raw_payload = json.dumps({"telegram_user_id": telegram_user_id}, separators=(",", ":")).encode("utf-8")
+        signature = hmac.new(
+            self.settings.google_client_secret.encode("utf-8"),
+            raw_payload,
+            hashlib.sha256,
+        ).digest()
+        token = base64.urlsafe_b64encode(raw_payload + b"." + signature).decode("utf-8")
+        return token.rstrip("=")
+
+    def parse_state(self, state: str) -> int:
+        padded = state + "=" * (-len(state) % 4)
+        try:
+            decoded = base64.urlsafe_b64decode(padded.encode("utf-8"))
+            raw_payload, signature = decoded.rsplit(b".", maxsplit=1)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise GoogleOAuthError("OAuth state is malformed") from exc
+
+        expected = hmac.new(
+            self.settings.google_client_secret.encode("utf-8"),
+            raw_payload,
+            hashlib.sha256,
+        ).digest()
+        if not hmac.compare_digest(signature, expected):
+            raise GoogleOAuthError("OAuth state signature mismatch")
+
+        try:
+            payload = json.loads(raw_payload.decode("utf-8"))
+            return int(payload["telegram_user_id"])
+        except (KeyError, ValueError, json.JSONDecodeError) as exc:
+            raise GoogleOAuthError("OAuth state payload is invalid") from exc
 
     async def exchange_code_for_token(self, code: str) -> dict[str, str | int | None]:
         payload = {
