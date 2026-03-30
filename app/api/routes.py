@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
@@ -46,7 +46,7 @@ async def auth_google_callback(
     refresh_token = token_payload.get("refresh_token")
     expires_in = token_payload.get("expires_in")
     expires_at = (
-        datetime.now(tz=timezone.utc) + timedelta(seconds=int(expires_in))
+        datetime.now(tz=UTC) + timedelta(seconds=int(expires_in))
         if expires_in is not None
         else None
     )

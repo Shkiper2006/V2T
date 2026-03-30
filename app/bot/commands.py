@@ -1,5 +1,5 @@
 import logging
-from datetime import timezone
+from datetime import UTC
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -46,7 +46,12 @@ async def start_cmd(message: Message) -> None:
 
     steps = [
         t("welcome", locale),
-        "1) " + (t("start_step_google_connected", locale) if google_connected else t("start_step_google_missing", locale)),
+        "1) "
+        + (
+            t("start_step_google_connected", locale)
+            if google_connected
+            else t("start_step_google_missing", locale)
+        ),
         t("start_step_tariff", locale, tariff=tariff.upper()),
         t("start_step_quota", locale, remaining=quota["remaining"], quota=quota["quota"]),
         t("start_step_end", locale),
@@ -165,8 +170,8 @@ async def history_cmd(message: Message) -> None:
     for idx, note in enumerate(notes, start=1):
         created_at = note.created_at
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        stamp = created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            created_at = created_at.replace(tzinfo=UTC)
+        stamp = created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         lines.append(f"{idx}. [{stamp}] {note.text}")
 
     await message.answer("\n".join(lines))

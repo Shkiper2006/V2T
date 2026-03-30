@@ -24,4 +24,11 @@ class PaymentProviderAdapter(Protocol):
 
     def parse_webhook(self, payload: dict) -> NormalizedWebhook: ...
 
-    def create_payment_session(self, *, telegram_user_id: int, tariff_code: str, amount: Decimal, currency: str) -> dict: ...
+    def create_payment_session(
+        self,
+        *,
+        telegram_user_id: int,
+        tariff_code: str,
+        amount: Decimal,
+        currency: str,
+    ) -> dict: ...
