@@ -79,6 +79,9 @@ class SubscriptionService:
     async def reserve_voice_quota(self, user_id: int) -> None:
         await self.repository.consume_voice_quota(user_id=user_id)
 
+    async def consume_voice_quota(self, user_id: int, request_id: str) -> bool:
+        return await self.repository.consume_voice_quota_once(user_id=user_id, request_id=request_id)
+
     async def user_tariff_details(self, user_id: int) -> dict[str, str | int]:
         user = await self.repository.get_user(user_id)
         tariff = await self.repository.get_tariff(user.tariff)

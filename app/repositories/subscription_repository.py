@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.session import get_sessionmaker
-from app.models import Tariff, User
+from app.models import Tariff, User, VoiceQuotaEvent
 
 
 class SubscriptionRepository:
@@ -116,6 +117,19 @@ class SubscriptionRepository:
             await session.commit()
             await session.refresh(user)
             return user
+
+    async def consume_voice_quota_once(self, user_id: int, request_id: str) -> bool:
+        async with self._session_factory() as session:
+            user = await self._get_or_create_user(session=session, user_id=user_id)
+            self._ensure_usage_month(user)
+            session.add(VoiceQuotaEvent(request_id=request_id, user_id=user.id))
+            user.monthly_messages_used += 1
+            try:
+                await session.commit()
+                return True
+            except IntegrityError:
+                await session.rollback()
+                return False
 
     async def _get_or_create_user(self, session: AsyncSession, user_id: int) -> User:
         stmt = select(User).where(User.telegram_id == str(user_id))
