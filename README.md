@@ -264,6 +264,12 @@ docker compose build app
 - проверьте `redis` и `worker` в `docker compose ps`;
 - проверьте логи: `docker compose logs -f worker`.
 
+### `Cannot connect to redis://redis:6379/0 ... getaddrinfo failed`
+- это обычно значит, что вы запускаете процесс **вне Docker**, а в `.env` стоит docker-host `redis`;
+- для локального запуска укажите `REDIS_URL=redis://localhost:6379/0`;
+- либо запускайте worker внутри compose: `docker compose up -d worker redis`;
+- проверьте доступность Redis: `redis-cli -h localhost -p 6379 ping` (должно вернуть `PONG`).
+
 ### Ошибки STT
 - проверьте выбранный `STT_PROVIDER`;
 - проверьте ключи/API или путь к модели (`STT_VOSK_MODEL_PATH`).
