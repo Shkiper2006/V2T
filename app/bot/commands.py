@@ -26,6 +26,7 @@ payment_service = PaymentService(
 google_oauth_service = GoogleOAuthService()
 storage = StorageService()
 note_repository = NoteRepository()
+UNLIMITED_QUOTA = 1_000_000
 
 HISTORY_LIMITS_BY_TARIFF: dict[str, int] = {
     "free": 5,
@@ -72,16 +73,12 @@ async def tariffs_cmd(message: Message) -> None:
 
     lines = [t("tariffs_title", locale)]
     for tariff in tariffs:
+        quota_value = int(tariff["quota"])
+        quota_text = "безлимит" if quota_value >= UNLIMITED_QUOTA else str(quota_value)
         lines.append(
-            t(
-                "tariff_line",
-                locale,
-                title=str(tariff["title"]),
-                price=int(tariff["price"]),
-                quota=int(tariff["quota"]),
-                max_audio=int(tariff["max_audio"]),
-                queue_priority=str(tariff["queue_priority"]),
-            )
+            f"• {tariff['title']} (~{int(tariff['price'])}₽/мес): "
+            f"{quota_text} сообщений, до {int(tariff['max_audio'])}s, "
+            f"приоритет {tariff['priority_display']}. {tariff['features']}."
         )
 
     await message.answer("\n".join(lines), reply_markup=tariff_select_keyboard())
@@ -91,16 +88,14 @@ async def tariffs_cmd(message: Message) -> None:
 async def limits_cmd(message: Message) -> None:
     locale = get_locale(message.from_user.language_code if message.from_user else None)
     tariff = await service.user_tariff_details(user_id=message.from_user.id)
+    quota_value = int(tariff["quota"])
+    quota_text = "безлимит" if quota_value >= UNLIMITED_QUOTA else f"{quota_value}"
     lines = [
         t("limits_header", locale, title=str(tariff["title"]), code=str(tariff["code"]).upper()),
-        t(
-            "limits_line",
-            locale,
-            quota=int(tariff["quota"]),
-            max_audio=int(tariff["max_audio"]),
-            queue_priority=str(tariff["queue_priority"]),
-        ),
-        t("limits_price", locale, price=int(tariff["price"])),
+        f"Лимиты: {quota_text} сообщений/мес, до {int(tariff['max_audio'])}s, "
+        f"приоритет очереди: {tariff['priority_display']}.",
+        f"План: {tariff['features']}.",
+        f"Цена: ~{int(tariff['price'])}₽/мес.",
     ]
     await message.answer("\n".join(lines))
 
