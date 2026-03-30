@@ -357,7 +357,7 @@ docker compose build app
 - проверьте логи: `docker compose logs -f worker`.
 
 ### `Cannot connect to redis://redis:6379/0 ... getaddrinfo failed`
-- это обычно значит, что вы запускаете процесс **вне Docker**, а в `.env` стоит docker-host `redis`;
+- это обычно значит, что вы запускаете процесс **вне Docker**, а в `.env` стоит docker-host (`redis`, `cache` и т.п.);
 - для локального запуска укажите `REDIS_URL=redis://localhost:6379/0`;
 - если у вас задано, также обновите:
   - `CELERY_BROKER_URL=redis://localhost:6379/0`
@@ -366,7 +366,7 @@ docker compose build app
 - проверьте доступность Redis: `redis-cli -h localhost -p 6379 ping` (должно вернуть `PONG`).
 
 ### `socket.gaierror: [Errno 8] getaddrinfo failed` при подключении к PostgreSQL
-- это обычно значит, что в `DATABASE_URL` указан docker-host `postgres`, а вы запускаете бота локально;
+- это обычно значит, что в `DATABASE_URL` указан docker-host (`postgres`, `db` и т.п.), а вы запускаете бота локально;
 - для локального запуска используйте, например:  
   `DATABASE_URL=postgresql+asyncpg://v2t:change-me@localhost:5432/v2t`
 - убедитесь, что PostgreSQL реально запущен на `localhost:5432`;
