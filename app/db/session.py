@@ -22,24 +22,28 @@ def _resolve_runtime_database_url(database_url: str) -> str:
     """
     Resolve DB URL for mixed local/docker runs.
 
-    If DATABASE_URL points to host `postgres` (Docker service name) but DNS
-    lookup fails in the current runtime, fallback to `localhost`.
+    If DATABASE_URL points to non-local host but DNS lookup fails in the
+    current runtime, fallback to `localhost`.
     """
     parsed = urlparse(database_url)
     hostname = parsed.hostname
-    if hostname != "postgres":
+    if hostname in {None, "localhost", "127.0.0.1"}:
         return database_url
 
     try:
         socket.getaddrinfo(hostname, parsed.port or 5432)
         return database_url
     except socket.gaierror:
-        netloc = parsed.netloc.replace("postgres", "localhost", 1)
+        netloc = parsed.netloc.replace(hostname, "localhost", 1)
         fallback_url = urlunparse(parsed._replace(netloc=netloc))
         logger.warning(
-            "DATABASE_URL host 'postgres' is unreachable in current environment. "
+            "DATABASE_URL host is unreachable in current environment. "
             "Fallback to localhost is applied.",
-            extra={"original_database_url": database_url, "fallback_database_url": fallback_url},
+            extra={
+                "original_database_url": database_url,
+                "unreachable_host": hostname,
+                "fallback_database_url": fallback_url,
+            },
         )
         return fallback_url
 
