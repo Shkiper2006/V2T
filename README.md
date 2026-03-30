@@ -1,34 +1,34 @@
 # V2T (Voice-to-Text)
 
-Инфраструктурный шаблон для API, Telegram-бота и Celery-воркера с Redis/PostgreSQL, Nginx reverse proxy и HTTPS.
+Инфраструктурный шаблон с FastAPI API, Telegram-ботом и Celery-воркером поверх Redis/PostgreSQL.
 
 ## Стек
 
 - **API**: FastAPI (`app.main:app`)
-- **Bot**: Aiogram (`app.bot.run`)
-- **Worker**: Celery (`app.celery_app:celery_app`)
+- **Bot**: Aiogram (`python -m app.bot.run`)
+- **Worker**: Celery (`celery -A app.celery_app:celery_app worker --loglevel=INFO --queues=transcription`)
 - **Infra**: Redis, PostgreSQL, Nginx
-- **CI**: GitHub Actions (lint, unit tests, image build)
+- **Quality**: Ruff + Pytest
+- **CI**: GitHub Actions (lint + unit tests + docker build)
 
----
-
-## 1) Быстрый локальный запуск
-
-### Подготовка
+## 1) Быстрый старт
 
 ```bash
 cp .env.example .env
 ```
 
-Заполните минимум:
+Заполните в `.env` обязательные блоки:
 
-- `TELEGRAM_BOT_TOKEN`
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- `POSTGRES_PASSWORD`
-- платежные ключи (`STRIPE_*` или `YOOKASSA_*`)
-- ключи STT, если используете облачные провайдеры
+- Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`
+- Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URL`
+- Redis: `REDIS_URL`
+- Postgres: `DATABASE_URL` (или `POSTGRES_*`)
+- STT: `STT_PROVIDER` + ключи выбранного провайдера (`STT_GOOGLE_API_KEY` / `STT_YANDEX_*` / `STT_VOSK_MODEL_PATH`)
+- Платежи: `PAYMENTS_PROVIDER` + секрет соответствующего провайдера
+  (`PAYMENTS_YOOKASSA_WEBHOOK_SECRET` / `PAYMENTS_CLOUDPAYMENTS_SECRET` / `PAYMENTS_ROBOKASSA_PASSWORD2`)
+- Тарифы: `TARIFF_BASIC_MAX_VOICE_SECONDS`, `TARIFF_PRO_MAX_VOICE_SECONDS`, `TARIFF_BASIC_PRICE_RUB`, `TARIFF_PRO_PRICE_RUB`
 
-### Запуск API + worker + infra
+Запуск через Docker Compose:
 
 ```bash
 docker compose up -d --build
@@ -40,165 +40,49 @@ docker compose up -d --build
 curl http://localhost/health
 ```
 
-### Запуск Telegram polling-бота (опционально)
+## 2) Локальные команды разработки
 
-Сервис `bot` подключен как profile:
-
-```bash
-docker compose --profile bot up -d --build bot
-```
-
-> Для production обычно используется **webhook** (а не polling), поэтому `bot` можно не запускать.
-
----
-
-## 2) Деплой на сервер (Docker Compose)
-
-1. Установите Docker + Docker Compose Plugin.
-2. Скопируйте проект на сервер.
-3. Создайте `.env` на базе `.env.example`.
-4. Обновите домен в `deploy/nginx/conf.d/default.conf`:
-   - `server_name v2t.example.com;`
-   - путь сертификатов `/etc/letsencrypt/live/v2t.example.com/...`
-5. Поднимите стек:
+Установить зависимости:
 
 ```bash
-docker compose up -d --build
+python -m pip install --upgrade pip
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
----
-
-## 3) Nginx reverse proxy + HTTPS (Let's Encrypt)
-
-Nginx уже настроен на:
-
-- reverse proxy на `app:8000`
-- отдельные маршруты для:
-  - `/webhook/telegram`
-  - `/auth/google/callback`
-- ACME webroot: `/.well-known/acme-challenge/`
-- редирект `HTTP -> HTTPS`
-
-### Получение сертификата
-
-Пример с `certbot` (на хосте):
+Проверки качества:
 
 ```bash
-mkdir -p deploy/nginx/certbot/conf deploy/nginx/certbot/www
-
-certbot certonly \
-  --webroot \
-  -w ./deploy/nginx/certbot/www \
-  -d v2t.example.com \
-  --email you@example.com \
-  --agree-tos \
-  --non-interactive
+ruff check app tests
+pytest
 ```
 
-После выпуска перезапустите Nginx:
+Запуск API локально:
 
 ```bash
-docker compose restart nginx
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Автопродление
-
-Добавьте cron на сервере:
+Запуск воркера:
 
 ```bash
-0 3 * * * certbot renew --quiet && cd /path/to/V2T && docker compose restart nginx
+celery -A app.celery_app:celery_app worker --loglevel=INFO --queues=transcription
 ```
 
----
-
-## 4) Настройка Telegram webhook
-
-После деплоя и получения HTTPS-сертификата:
+Запуск polling-бота:
 
 ```bash
-curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://v2t.example.com/webhook/telegram",
-    "secret_token": "<TELEGRAM_WEBHOOK_SECRET>"
-  }'
+python -m app.bot.run
 ```
 
-Проверка:
-
-```bash
-curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
-```
-
----
-
-## 5) Настройка Google OAuth
-
-В Google Cloud Console:
-
-1. Создайте OAuth Client ID (Web application).
-2. Добавьте Authorized redirect URI:
-   - `https://v2t.example.com/auth/google/callback`
-3. Сохраните значения в `.env`:
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
-   - `GOOGLE_REDIRECT_URL=https://v2t.example.com/auth/google/callback`
-
-Проверка ручки:
-
-```bash
-curl https://v2t.example.com/auth/google
-```
-
----
-
-## 6) Настройка платежей
-
-Поддержаны переменные под Stripe / YooKassa (провайдер-agnostic слой).
-
-Минимально:
-
-- `PAYMENTS_PROVIDER` (`stripe` или `yookassa`)
-- `PAYMENTS_WEBHOOK_SECRET`
-- `PAYMENTS_SUCCESS_URL`
-- `PAYMENTS_CANCEL_URL`
-- для Stripe: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`
-- для YooKassa: `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY`
-
-Webhook endpoint в API:
-
-- `POST /payment/webhook`
-
----
-
-## 7) Тарифы
-
-Тарифные лимиты и цены задаются env-переменными:
-
-- `TARIFF_BASIC_MAX_VOICE_SECONDS`
-- `TARIFF_PRO_MAX_VOICE_SECONDS`
-- `TARIFF_BASIC_PRICE_RUB`
-- `TARIFF_PRO_PRICE_RUB`
-
-Изменения применяются после перезапуска сервисов:
-
-```bash
-docker compose up -d
-```
-
----
-
-## 8) CI (GitHub Actions)
+## 3) CI
 
 Workflow `.github/workflows/ci.yml` выполняет:
 
-1. **lint**: `ruff check app tests`
-2. **unit-tests**: `pytest -q`
-3. **build-images**: сборка Docker target'ов `api`, `worker`, `bot`
+1. `ruff check app tests`
+2. `pytest`
+3. `docker build` по target'ам `api`, `worker`, `bot`
 
----
-
-## 9) Полезные команды
+## 4) Полезные Docker команды
 
 ```bash
 # Логи API
