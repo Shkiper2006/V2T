@@ -11,3 +11,7 @@ class SubscriptionService:
 
     async def tariffs(self) -> str:
         return "Тарифы: Basic, Pro, Team"
+
+    async def user_tariff(self, user_id: int) -> str:
+        user = await self.repository.get_user(user_id)
+        return "pro" if user.is_subscribed else "basic"

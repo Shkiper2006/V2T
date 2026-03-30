@@ -1,12 +1,18 @@
+import logging
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.services.storage_service import StorageService
 from app.services.subscription_service import SubscriptionService
+from app.tasks.transcription import process_voice
 
+logger = logging.getLogger(__name__)
 router = Router(name="telegram_commands")
 service = SubscriptionService(repository=SubscriptionRepository())
+storage = StorageService()
 
 
 @router.message(Command("start"))
@@ -46,3 +52,27 @@ async def help_cmd(message: Message) -> None:
         "/history\n"
         "/help"
     )
+
+
+@router.message(lambda msg: bool(msg.voice))
+async def voice_message_handler(message: Message) -> None:
+    if message.voice is None:
+        return
+
+    file_info = await message.bot.get_file(message.voice.file_id)
+    file_data = await message.bot.download_file(file_info.file_path)
+    voice_bytes = file_data.read()
+
+    file_uri = storage.save_bytes(data=voice_bytes, suffix=".ogg")
+    tariff = await service.user_tariff(user_id=message.from_user.id)
+
+    payload = {
+        "telegram_user_id": message.from_user.id,
+        "file_uri": file_uri,
+        "duration": message.voice.duration,
+        "tariff": tariff,
+    }
+
+    process_voice.delay(payload)
+    logger.info("Voice task queued", extra={"user_id": message.from_user.id, "file_uri": file_uri})
+    await message.answer("🎧 Голосовое сообщение получено. Начинаю обработку...")
