@@ -34,7 +34,14 @@ class YooKassaAdapter:
             payload=payload,
         )
 
-    def create_payment_session(self, *, telegram_user_id: int, tariff_code: str, amount: Decimal, currency: str) -> dict:
+    def create_payment_session(
+        self,
+        *,
+        telegram_user_id: int,
+        tariff_code: str,
+        amount: Decimal,
+        currency: str,
+    ) -> dict:
         return {
             "provider": self.name,
             "payment_url": f"https://yookassa.example/pay/{telegram_user_id}/{tariff_code}",

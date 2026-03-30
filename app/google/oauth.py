@@ -5,13 +5,12 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.config import get_settings
-
 
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 
@@ -94,7 +93,7 @@ class GoogleOAuthService:
     def calculate_expiry(self, expires_in: int | None) -> datetime | None:
         if not expires_in:
             return None
-        return datetime.now(tz=timezone.utc).replace(microsecond=0) + timedelta(seconds=int(expires_in))
+        return datetime.now(tz=UTC).replace(microsecond=0) + timedelta(seconds=int(expires_in))
 
     def _post_form(self, payload: dict[str, str]) -> dict[str, str | int | None]:
         body = urlencode(payload).encode("utf-8")
