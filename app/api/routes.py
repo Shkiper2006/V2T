@@ -1,16 +1,22 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from app.bot.dispatcher import bot, dp
 from app.google.oauth import GoogleOAuthService
 from app.payments.webhooks import PaymentWebhookService
+from app.repositories.payment_repository import PaymentRepository
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.services.payment_service import PaymentService
 
 router = APIRouter()
 google_oauth_service = GoogleOAuthService()
 payment_webhook_service = PaymentWebhookService()
 subscription_repository = SubscriptionRepository()
+payment_service = PaymentService(
+    payment_repository=PaymentRepository(),
+    subscription_repository=subscription_repository,
+)
 
 
 @router.post("/webhook/telegram")
@@ -60,7 +66,26 @@ async def set_google_mode(telegram_user_id: int, mode: str = Query(pattern="^(do
 
 
 @router.post("/payment/webhook")
-async def payment_webhook(request: Request) -> dict[str, str]:
+async def payment_webhook(
+    request: Request,
+    x_payment_provider: str = Header(alias="X-Payment-Provider"),
+    x_payment_signature: str = Header(alias="X-Payment-Signature"),
+) -> dict[str, str]:
     payload = await request.json()
-    await payment_webhook_service.handle(payload)
+    try:
+        await payment_webhook_service.handle(
+            provider=x_payment_provider,
+            payload=payload,
+            signature=x_payment_signature,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "processed"}
+
+
+@router.post("/payment/session")
+async def create_payment_session(telegram_user_id: int, tariff: str = Query(default="pro")) -> dict:
+    return await payment_service.create_payment_session(
+        telegram_user_id=telegram_user_id,
+        tariff_code=tariff,
+    )

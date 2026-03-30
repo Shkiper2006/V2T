@@ -4,7 +4,9 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from app.repositories.payment_repository import PaymentRepository
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.services.payment_service import PaymentService
 from app.services.storage_service import StorageService
 from app.services.subscription_service import SubscriptionService
 from app.tasks.transcription import process_voice
@@ -12,6 +14,10 @@ from app.tasks.transcription import process_voice
 logger = logging.getLogger(__name__)
 router = Router(name="telegram_commands")
 service = SubscriptionService(repository=SubscriptionRepository())
+payment_service = PaymentService(
+    payment_repository=PaymentRepository(),
+    subscription_repository=SubscriptionRepository(),
+)
 storage = StorageService()
 
 
@@ -22,8 +28,15 @@ async def start_cmd(message: Message) -> None:
 
 @router.message(Command("subscribe"))
 async def subscribe_cmd(message: Message) -> None:
-    response = await service.subscribe(user_id=message.from_user.id)
-    await message.answer(response)
+    session = await payment_service.create_payment_session(
+        telegram_user_id=message.from_user.id,
+        tariff_code="pro",
+    )
+    await message.answer(
+        "Оформить подписку Pro:\n"
+        f"{session['payment_url']}\n"
+        f"Провайдер: {session['provider']}"
+    )
 
 
 @router.message(Command("tariffs"))
@@ -65,6 +78,15 @@ async def voice_message_handler(message: Message) -> None:
 
     file_uri = storage.save_bytes(data=voice_bytes, suffix=".ogg")
     tariff = await service.user_tariff(user_id=message.from_user.id)
+    allowed, reason = await service.check_voice_allowed(
+        user_id=message.from_user.id,
+        duration_seconds=message.voice.duration,
+    )
+    if not allowed:
+        await message.answer(f"❌ {reason}")
+        return
+
+    await service.reserve_voice_quota(user_id=message.from_user.id)
 
     payload = {
         "telegram_user_id": message.from_user.id,

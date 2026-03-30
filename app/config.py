@@ -36,6 +36,10 @@ class Settings(BaseSettings):
 
     tariff_basic_max_voice_seconds: int = Field(default=300, alias="TARIFF_BASIC_MAX_VOICE_SECONDS")
     tariff_pro_max_voice_seconds: int = Field(default=1800, alias="TARIFF_PRO_MAX_VOICE_SECONDS")
+    payments_provider: str = Field(default="yookassa", alias="PAYMENTS_PROVIDER")
+    payments_yookassa_webhook_secret: str = Field(default="", alias="PAYMENTS_YOOKASSA_WEBHOOK_SECRET")
+    payments_cloudpayments_secret: str = Field(default="", alias="PAYMENTS_CLOUDPAYMENTS_SECRET")
+    payments_robokassa_password2: str = Field(default="", alias="PAYMENTS_ROBOKASSA_PASSWORD2")
 
     stt_provider: str = Field(default="vosk", alias="STT_PROVIDER")
     stt_fallback_providers: str = Field(default="faster_whisper,google,yandex", alias="STT_FALLBACK_PROVIDERS")

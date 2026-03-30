@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -15,6 +15,8 @@ class User(Base):
     telegram_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     tariff: Mapped[str] = mapped_column(String(32), default="basic")
     is_subscribed: Mapped[bool] = mapped_column(Boolean, default=False)
+    monthly_messages_used: Mapped[int] = mapped_column(Integer, default=0)
+    usage_month: Mapped[str] = mapped_column(String(7), default=lambda: datetime.utcnow().strftime("%Y-%m"))
     google_notes_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     google_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     google_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)

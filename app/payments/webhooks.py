@@ -10,5 +10,5 @@ class PaymentWebhookService:
             subscription_repository=SubscriptionRepository(),
         )
 
-    async def handle(self, payload: dict) -> None:
-        await self.payment_service.handle_webhook(payload)
+    async def handle(self, provider: str, payload: dict, signature: str) -> None:
+        await self.payment_service.handle_webhook(provider=provider, payload=payload, signature=signature)
