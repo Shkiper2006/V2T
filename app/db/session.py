@@ -1,10 +1,14 @@
 import logging
 import socket
+from datetime import datetime
+from decimal import Decimal
 from urllib.parse import urlparse, urlunparse
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import get_settings
+from app.models import Base, QueuePriority, Tariff
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -56,3 +60,63 @@ SessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_co
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return SessionLocal
+
+
+async def init_database() -> None:
+    """
+    Ensure required tables exist and minimal seed data is present.
+    """
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with SessionLocal() as session:
+        has_tariff = await session.scalar(select(Tariff.code).limit(1))
+        if has_tariff is not None:
+            return
+
+        now = datetime.utcnow()
+        session.add_all(
+            [
+                Tariff(
+                    code="free",
+                    title="Free",
+                    price_rub=Decimal("0"),
+                    monthly_messages_quota=20,
+                    max_audio_seconds=120,
+                    queue_priority=QueuePriority.LOW.value,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Tariff(
+                    code="basic",
+                    title="Basic",
+                    price_rub=Decimal("490"),
+                    monthly_messages_quota=200,
+                    max_audio_seconds=300,
+                    queue_priority=QueuePriority.NORMAL.value,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Tariff(
+                    code="pro",
+                    title="Pro",
+                    price_rub=Decimal("1490"),
+                    monthly_messages_quota=1000,
+                    max_audio_seconds=1800,
+                    queue_priority=QueuePriority.HIGH.value,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Tariff(
+                    code="business",
+                    title="Business",
+                    price_rub=Decimal("4990"),
+                    monthly_messages_quota=5000,
+                    max_audio_seconds=3600,
+                    queue_priority=QueuePriority.BUSINESS.value,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await session.commit()
