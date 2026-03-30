@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 from pathlib import Path
@@ -10,6 +11,9 @@ from celery import chain
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.services.speech_to_text import transcribe_with_fallback
+from app.repositories.note_repository import NoteRepository
+from app.repositories.subscription_repository import SubscriptionRepository
+from app.services.note_service import NoteService
 from app.services.telegram_notifier import TelegramNotifier
 from app.services.storage_service import StorageService
 
@@ -17,6 +21,10 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 storage = StorageService()
 notifier = TelegramNotifier()
+note_service = NoteService(
+    note_repository=NoteRepository(),
+    subscription_repository=SubscriptionRepository(),
+)
 
 
 class TemporaryTaskError(RuntimeError):
@@ -84,6 +92,7 @@ def process_voice(self, payload: dict) -> dict:
             "transcript": transcript,
             "provider": transcription_result.provider,
             "language": language or settings.stt_default_language,
+            "duration": duration,
         }
     except TemporaryTaskError:
         notifier.send_message(user_id, "⚠️ Временная ошибка обработки, пробуем снова...")
@@ -102,7 +111,14 @@ def process_voice(self, payload: dict) -> dict:
 @celery_app.task(name="app.tasks.transcription.create_note")
 def create_note(transcript_result: dict, user_id: int) -> dict:
     transcript = transcript_result.get("transcript", "")
-    note = f"Краткая заметка: {transcript}"
+    duration_seconds = int(transcript_result.get("duration", 0))
+    note = asyncio.run(
+        note_service.create_summary_note(
+            telegram_user_id=user_id,
+            transcript=transcript,
+            duration_seconds=duration_seconds,
+        )
+    )
     logger.info("Note created", extra={"user_id": user_id})
     return {"status": "note_created", "note": note}
 

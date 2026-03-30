@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     google_client_secret: str = Field(default="", alias="GOOGLE_CLIENT_SECRET")
     google_redirect_url: str = Field(default="http://localhost:8000/auth/google/callback", alias="GOOGLE_REDIRECT_URL")
 
+    database_url: str = Field(default="postgresql+asyncpg://v2t:change-me@localhost:5432/v2t", alias="DATABASE_URL")
+
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
     storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
