@@ -24,6 +24,18 @@ class SubscriptionService:
 
     async def tariffs_catalog(self) -> list[dict[str, str | int]]:
         tariffs = await self.repository.get_tariffs()
+        priority_labels = {
+            "free": "low",
+            "basic": "fast/normal",
+            "pro": "high",
+            "business": "high + business",
+        }
+        feature_labels = {
+            "free": "Базовый доступ",
+            "basic": "Оптимально для регулярного использования",
+            "pro": "Безлимит и высокий приоритет",
+            "business": "Как Pro + бизнес-возможности",
+        }
         return [
             {
                 "code": tariff.code,
@@ -32,6 +44,8 @@ class SubscriptionService:
                 "quota": tariff.monthly_messages_quota,
                 "max_audio": tariff.max_audio_seconds,
                 "queue_priority": tariff.queue_priority,
+                "priority_display": priority_labels.get(tariff.code, tariff.queue_priority),
+                "features": feature_labels.get(tariff.code, "Стандартные возможности"),
             }
             for tariff in tariffs
         ]
@@ -70,11 +84,25 @@ class SubscriptionService:
         if tariff is None:
             raise RuntimeError("Tariff seed is missing in database")
 
+        priority_labels = {
+            "free": "low",
+            "basic": "fast/normal",
+            "pro": "high",
+            "business": "high + business",
+        }
+        feature_labels = {
+            "free": "Базовый доступ",
+            "basic": "Оптимально для регулярного использования",
+            "pro": "Безлимит и высокий приоритет",
+            "business": "Как Pro + бизнес-возможности",
+        }
         return {
             "code": tariff.code,
             "title": tariff.title,
             "quota": tariff.monthly_messages_quota,
             "max_audio": tariff.max_audio_seconds,
             "queue_priority": tariff.queue_priority,
+            "priority_display": priority_labels.get(tariff.code, tariff.queue_priority),
             "price": tariff.price_rub,
+            "features": feature_labels.get(tariff.code, "Стандартные возможности"),
         }

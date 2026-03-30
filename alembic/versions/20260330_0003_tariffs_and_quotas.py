@@ -6,10 +6,11 @@ Create Date: 2026-03-30
 """
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import sqlalchemy as sa
 
 from alembic import op
-import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "20260330_0003"
@@ -19,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     op.create_table(
         "tariffs",
         sa.Column("code", sa.String(length=32), nullable=False),
@@ -50,8 +51,8 @@ def upgrade() -> None:
                 "code": "free",
                 "title": "Free",
                 "price_rub": 0,
-                "monthly_messages_quota": 20,
-                "max_audio_seconds": 120,
+                "monthly_messages_quota": 10,
+                "max_audio_seconds": 30,
                 "queue_priority": "low",
                 "created_at": now,
                 "updated_at": now,
@@ -59,9 +60,9 @@ def upgrade() -> None:
             {
                 "code": "basic",
                 "title": "Basic",
-                "price_rub": 490,
+                "price_rub": 299,
                 "monthly_messages_quota": 200,
-                "max_audio_seconds": 300,
+                "max_audio_seconds": 120,
                 "queue_priority": "normal",
                 "created_at": now,
                 "updated_at": now,
@@ -69,9 +70,9 @@ def upgrade() -> None:
             {
                 "code": "pro",
                 "title": "Pro",
-                "price_rub": 1490,
-                "monthly_messages_quota": 1000,
-                "max_audio_seconds": 1800,
+                "price_rub": 699,
+                "monthly_messages_quota": 1000000,
+                "max_audio_seconds": 600,
                 "queue_priority": "high",
                 "created_at": now,
                 "updated_at": now,
@@ -79,10 +80,10 @@ def upgrade() -> None:
             {
                 "code": "business",
                 "title": "Business",
-                "price_rub": 4990,
-                "monthly_messages_quota": 5000,
-                "max_audio_seconds": 3600,
-                "queue_priority": "business",
+                "price_rub": 1490,
+                "monthly_messages_quota": 1000000,
+                "max_audio_seconds": 600,
+                "queue_priority": "high",
                 "created_at": now,
                 "updated_at": now,
             },
