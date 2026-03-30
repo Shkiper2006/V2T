@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -12,12 +12,12 @@ from celery import chain
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.google.note_sync_service import GoogleNoteSyncService, GoogleNoteSyncServiceError
-from app.repositories.stt_attempt_log_repository import STTAttemptLogRepository
-from app.services.speech_to_text import SpeechProviderError, transcribe_with_fallback
 from app.repositories.note_repository import NoteRepository
+from app.repositories.stt_attempt_log_repository import STTAttemptLogRepository
 from app.repositories.subscription_repository import SubscriptionRepository
-from app.services.telegram_notifier import TelegramNotifier
+from app.services.speech_to_text import SpeechProviderError, transcribe_with_fallback
 from app.services.storage_service import StorageService
+from app.services.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -35,13 +35,13 @@ class TemporaryTaskError(RuntimeError):
 
 def _parse_request_timestamp(raw: str | None) -> datetime:
     if not raw:
-        return datetime.now(tz=timezone.utc)
+        return datetime.now(tz=UTC)
 
     normalized = raw.replace("Z", "+00:00")
     parsed = datetime.fromisoformat(normalized)
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _is_google_sync_retryable(exc: GoogleNoteSyncServiceError) -> bool:
@@ -114,7 +114,7 @@ def process_voice(self, payload: dict) -> dict:
                     "provider": transcription_result.provider,
                     "duration": duration,
                     "user_id": user_id,
-                    "timestamp": request_timestamp or datetime.now(tz=timezone.utc).isoformat(),
+                    "timestamp": request_timestamp or datetime.now(tz=UTC).isoformat(),
                     "stt_duration_seconds": transcription_result.duration_seconds,
                 }
             ),

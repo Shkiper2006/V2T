@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
@@ -30,7 +31,9 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
 
 @router.get("/auth/google")
-async def auth_google(telegram_user_id: int | None = Query(default=None)) -> dict[str, str]:
+async def auth_google(
+    telegram_user_id: Annotated[int | None, Query()] = None,
+) -> dict[str, str]:
     return {"auth_url": google_oauth_service.build_auth_url(telegram_user_id=telegram_user_id)}
 
 
@@ -46,7 +49,7 @@ async def auth_google_callback(
     refresh_token = token_payload.get("refresh_token")
     expires_in = token_payload.get("expires_in")
     expires_at = (
-        datetime.now(tz=timezone.utc) + timedelta(seconds=int(expires_in))
+        datetime.now(tz=UTC) + timedelta(seconds=int(expires_in))
         if expires_in is not None
         else None
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.config import get_settings
 from app.google.docs_service import GoogleDocsService
@@ -70,11 +70,11 @@ class GoogleNoteSyncService:
         if expires_at is None:
             return False
         if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        return expires_at <= datetime.now(tz=timezone.utc)
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at <= datetime.now(tz=UTC)
 
     @staticmethod
     def _build_expires_at(expires_in: object) -> datetime | None:
         if expires_in is None:
             return None
-        return datetime.now(tz=timezone.utc) + timedelta(seconds=int(expires_in))
+        return datetime.now(tz=UTC) + timedelta(seconds=int(expires_in))
